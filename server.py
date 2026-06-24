@@ -89,10 +89,10 @@ async def lifespan(app: FastAPI):
         print("Background auto-sync task cleaned up.")
 
 # Initialize FastAPI App
-app = FastAPI(lifespan=lifespan)
+fastapi_app = FastAPI(lifespan=lifespan)
 
 # Allow CORS for MCP Client connections if needed
-app.add_middleware(
+fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -102,7 +102,7 @@ app.add_middleware(
 
 # ----------------- MCP SSE Handlers -----------------
 
-@app.get("/sse")
+@fastapi_app.get("/sse")
 async def handle_sse(request: Request):
     """
     Accepts SSE connection requests from the client.
@@ -117,7 +117,27 @@ async def handle_sse(request: Request):
         )
 
 # Mount the messages handler under the matching endpoint
-app.mount("/messages/", transport.handle_post_message)
+fastapi_app.mount("/messages/", transport.handle_post_message)
+
+class MCPRoutingMiddleware:
+    """
+    ASGI middleware to intercept POST requests to /sse, /messages, and /messages/
+    and route them directly to the SSE transport's POST handler. This resolves
+    issues where clients send POST requests back to the /sse URL (resulting in
+    405 Method Not Allowed) or to /messages without a trailing slash.
+    """
+    def __init__(self, app, transport):
+        self.app = app
+        self.transport = transport
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] == "POST" and scope["path"] in ("/messages", "/messages/", "/sse", "/sse/"):
+            await self.transport.handle_post_message(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+# Wrap the FastAPI app inside the routing middleware
+app = MCPRoutingMiddleware(fastapi_app, transport)
 
 # ----------------- MCP Exposed Tools -----------------
 
