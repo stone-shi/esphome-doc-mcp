@@ -16,10 +16,13 @@ import indexer
 # Initialize FastMCP Server
 mcp = FastMCP("ESPHome Doc Search Server")
 
+# Disable DNS rebinding protection to allow connection from external hosts/IPs (e.g. 10.100.0.50:4008)
+mcp.settings.transport_security.enable_dns_rebinding_protection = False
+
 # Configure SSE Transport (Legacy)
 # Note: Clients will connect to GET /sse to start the stream.
 # The server will tell the client to post messages to POST /messages/.
-transport = SseServerTransport("/messages/")
+transport = SseServerTransport("/messages/", security_settings=mcp.settings.transport_security)
 
 # Configure Streamable HTTP app (Modern)
 mcp.streamable_http_app()
