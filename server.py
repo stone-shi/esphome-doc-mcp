@@ -6,6 +6,7 @@ from starlette.routing import Route, Mount
 from starlette.middleware.cors import CORSMiddleware
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.sse import SseServerTransport
 
 import config
@@ -15,10 +16,14 @@ import indexer
 # Initialize FastMCP Server
 mcp = FastMCP("ESPHome Doc Search Server")
 
-# Configure SSE Transport
+# Configure SSE Transport (Legacy)
 # Note: Clients will connect to GET /sse to start the stream.
 # The server will tell the client to post messages to POST /messages/.
 transport = SseServerTransport("/messages/")
+
+# Configure Streamable HTTP app (Modern)
+mcp.streamable_http_app()
+streamable_app = StreamableHTTPASGIApp(mcp.session_manager)
 
 # Declare the global background sync task tracker
 background_sync_task = None
@@ -77,7 +82,9 @@ async def lifespan(app: FastAPI):
     else:
         print("Document Auto-Sync is disabled (SYNC_INTERVAL_HOURS <= 0).")
         
-    yield
+    # Start the Streamable HTTP session manager context
+    async with mcp.session_manager.run():
+        yield
     
     # Shutdown Lifecycle
     if background_sync_task:
@@ -121,23 +128,38 @@ fastapi_app.mount("/messages/", transport.handle_post_message)
 
 class MCPRoutingMiddleware:
     """
-    ASGI middleware to intercept POST requests to /sse, /messages, and /messages/
-    and route them directly to the SSE transport's POST handler. This resolves
-    issues where clients send POST requests back to the /sse URL (resulting in
-    405 Method Not Allowed) or to /messages without a trailing slash.
+    ASGI middleware to route requests to the appropriate MCP transport.
+    Distinguishes between legacy SSE and modern Streamable HTTP.
     """
-    def __init__(self, app, transport):
+    def __init__(self, app, sse_transport, streamable_app):
         self.app = app
-        self.transport = transport
+        self.sse_transport = sse_transport
+        self.streamable_app = streamable_app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["method"] == "POST" and scope["path"] in ("/messages", "/messages/", "/sse", "/sse/"):
-            await self.transport.handle_post_message(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            path = scope["path"]
+            method = scope["method"]
+            headers = dict(scope.get("headers", []))
+            has_mcp_session = b"mcp-session-id" in headers
+
+            # Route Streamable HTTP requests (POST /sse, DELETE /sse, or GET /sse with session id header)
+            if path in ("/sse", "/sse/"):
+                if method == "POST" or method == "DELETE" or (method == "GET" and has_mcp_session):
+                    await self.streamable_app(scope, receive, send)
+                    return
+                # Otherwise, GET /sse without session id is handled by FastAPI (legacy SSE client initiation)
+                
+            # Route legacy SSE POST messages (POST /messages or POST /messages/)
+            elif path in ("/messages", "/messages/"):
+                if method == "POST":
+                    await self.sse_transport.handle_post_message(scope, receive, send)
+                    return
+
         await self.app(scope, receive, send)
 
 # Wrap the FastAPI app inside the routing middleware
-app = MCPRoutingMiddleware(fastapi_app, transport)
+app = MCPRoutingMiddleware(fastapi_app, transport, streamable_app)
 
 # ----------------- MCP Exposed Tools -----------------
 
