@@ -1,0 +1,14 @@
+services:
+  esphome-doc-mcp:
+    build: .
+    container_name: esphome-doc-mcp
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount host directory for persistent storage (SQLite and Git clone repo)
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/data

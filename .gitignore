@@ -1,0 +1,18 @@
+# Environment and local configurations
+.env
+version.txt
+
+# Local data mount
+data/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# OS files
+.DS_Store
