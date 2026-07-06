@@ -56,7 +56,7 @@ echo ""
 
 # Run the test suite
 echo "Running pytest..."
-pytest -v
+pytest -v --junitxml=test-reports/results.xml
 
 echo ""
 echo "========================================="

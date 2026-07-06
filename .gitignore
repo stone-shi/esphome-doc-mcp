@@ -18,5 +18,8 @@ venv/
 .coverage
 htmlcov/
 
+# Test reports
+test-reports/
+
 # OS files
 .DS_Store
