@@ -14,5 +14,9 @@ __pycache__/
 .venv/
 venv/
 
+# Coverage
+.coverage
+htmlcov/
+
 # OS files
 .DS_Store
